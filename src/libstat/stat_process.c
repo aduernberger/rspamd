@@ -898,7 +898,7 @@ rspamd_stat_learn(struct rspamd_task *task,
 
 		if (!rspamd_stat_cache_check(st_ctx, task, classifier, spam, err)) {
 			msg_debug_bayes("cache check failed, skip learning");
-			return RSPAMD_STAT_PROCESS_ERROR;
+			ret = RSPAMD_STAT_PROCESS_ERROR;
 		}
 	}
 	else if (stage == RSPAMD_TASK_STAGE_LEARN) {
@@ -911,7 +911,7 @@ rspamd_stat_learn(struct rspamd_task *task,
 							" classifier: %s",
 							task->classifier);
 			}
-			return RSPAMD_STAT_PROCESS_ERROR;
+			ret = RSPAMD_STAT_PROCESS_ERROR;
 		}
 
 		/* Process backends */
@@ -922,16 +922,48 @@ rspamd_stat_learn(struct rspamd_task *task,
 							" classifier: %s",
 							task->classifier);
 			}
-			return RSPAMD_STAT_PROCESS_ERROR;
+			ret = RSPAMD_STAT_PROCESS_ERROR;
 		}
 	}
 	else if (stage == RSPAMD_TASK_STAGE_LEARN_POST) {
 		if (!rspamd_stat_backends_post_learn(st_ctx, task, classifier, spam, err)) {
-			return RSPAMD_STAT_PROCESS_ERROR;
+			ret = RSPAMD_STAT_PROCESS_ERROR;
 		}
 	}
 
 	task->processed_stages |= stage;
+
+	if (ret == RSPAMD_STAT_PROCESS_ERROR) {
+		if (*err == NULL) {
+			g_set_error(err,
+						g_quark_from_static_string("stat"), 500,
+						"Unknown statistics error, found on stage %s;"
+						" classifier: %s",
+						rspamd_task_stage_name(stage), task->classifier);
+		}
+
+		if ((*err)->code >= 400) {
+			msg_err_task("learn error: %e", *err);
+		}
+		else {
+			msg_notice_task("skip learning: %e", *err);
+		}
+
+		if (!(task->flags & RSPAMD_TASK_FLAG_LEARN_AUTO)) {
+			task->err = *err;
+			task->processed_stages |= RSPAMD_TASK_STAGE_DONE;
+		}
+		else {
+			/* Do not skip idempotent in case of learn error */
+			if (*err) {
+				g_error_free(*err);
+			}
+
+			task->processed_stages |= RSPAMD_TASK_STAGE_LEARN |
+									  RSPAMD_TASK_STAGE_LEARN_PRE |
+									  RSPAMD_TASK_STAGE_LEARN_POST;
+		}
+	}
 
 	return ret;
 }
@@ -1162,7 +1194,8 @@ rspamd_stat_check_autolearn(struct rspamd_task *task)
 
 			if (ret) {
 				/* Do not autolearn if we have this symbol already */
-				if (rspamd_stat_has_classifier_symbols(task, mres, cl)) {
+				if (rspamd_stat_has_classifier_symbols(task, mres, cl) ||
+					(task->flags & (RSPAMD_TASK_FLAG_ALREADY_LEARNED | RSPAMD_TASK_FLAG_UNLEARN))) {
 					ret = FALSE;
 					task->flags &= ~(RSPAMD_TASK_FLAG_LEARN_HAM |
 									 RSPAMD_TASK_FLAG_LEARN_SPAM);

@@ -762,53 +762,30 @@ rspamd_task_process(struct rspamd_task *task, unsigned int stages)
 			rspamd_task_result_adjust_grow_factor(task, task->result, task->cfg->grow_factor);
 		}
 
-		if (all_done && (task->flags & RSPAMD_TASK_FLAG_LEARN_AUTO) &&
+		break;
+
+	case RSPAMD_TASK_STAGE_LEARN_PRE:
+		if (task->flags & (RSPAMD_TASK_FLAG_LEARN_SPAM | RSPAMD_TASK_FLAG_LEARN_HAM | RSPAMD_TASK_FLAG_LEARN_AUTO)) {
+			rspamd_stat_learn(task,
+							  task->flags & RSPAMD_TASK_FLAG_LEARN_SPAM,
+							  task->cfg->lua_state, task->classifier,
+							  st, &stat_error);
+		}
+		break;
+	case RSPAMD_TASK_STAGE_LEARN:
+		/* check if autlearn is neccessary then fallthrough to handle the learn in rspamd_stat_learn */
+		if ((task->flags & RSPAMD_TASK_FLAG_LEARN_AUTO) &&
 			!RSPAMD_TASK_IS_EMPTY(task) &&
 			!(task->flags & (RSPAMD_TASK_FLAG_LEARN_SPAM | RSPAMD_TASK_FLAG_LEARN_HAM))) {
 			rspamd_stat_check_autolearn(task);
 		}
-		break;
-
-	case RSPAMD_TASK_STAGE_LEARN:
-	case RSPAMD_TASK_STAGE_LEARN_PRE:
 	case RSPAMD_TASK_STAGE_LEARN_POST:
 		if (task->flags & (RSPAMD_TASK_FLAG_LEARN_SPAM | RSPAMD_TASK_FLAG_LEARN_HAM)) {
 			if (task->err == NULL) {
-				if (!rspamd_stat_learn(task,
-									   task->flags & RSPAMD_TASK_FLAG_LEARN_SPAM,
-									   task->cfg->lua_state, task->classifier,
-									   st, &stat_error)) {
-
-					if (stat_error == NULL) {
-						g_set_error(&stat_error,
-									g_quark_from_static_string("stat"), 500,
-									"Unknown statistics error, found on stage %s;"
-									" classifier: %s",
-									rspamd_task_stage_name(st), task->classifier);
-					}
-
-					if (stat_error->code >= 400) {
-						msg_err_task("learn error: %e", stat_error);
-					}
-					else {
-						msg_notice_task("skip learning: %e", stat_error);
-					}
-
-					if (!(task->flags & RSPAMD_TASK_FLAG_LEARN_AUTO)) {
-						task->err = stat_error;
-						task->processed_stages |= RSPAMD_TASK_STAGE_DONE;
-					}
-					else {
-						/* Do not skip idempotent in case of learn error */
-						if (stat_error) {
-							g_error_free(stat_error);
-						}
-
-						task->processed_stages |= RSPAMD_TASK_STAGE_LEARN |
-												  RSPAMD_TASK_STAGE_LEARN_PRE |
-												  RSPAMD_TASK_STAGE_LEARN_POST;
-					}
-				}
+				rspamd_stat_learn(task,
+								  task->flags & RSPAMD_TASK_FLAG_LEARN_SPAM,
+								  task->cfg->lua_state, task->classifier,
+								  st, &stat_error);
 			}
 		}
 		break;
