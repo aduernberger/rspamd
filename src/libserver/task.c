@@ -762,17 +762,12 @@ rspamd_task_process(struct rspamd_task *task, unsigned int stages)
 			rspamd_task_result_adjust_grow_factor(task, task->result, task->cfg->grow_factor);
 		}
 
-		if (all_done && (task->flags & RSPAMD_TASK_FLAG_LEARN_AUTO) &&
-			!RSPAMD_TASK_IS_EMPTY(task) &&
-			!(task->flags & (RSPAMD_TASK_FLAG_LEARN_SPAM | RSPAMD_TASK_FLAG_LEARN_HAM))) {
-			rspamd_stat_check_autolearn(task);
-		}
 		break;
 
 	case RSPAMD_TASK_STAGE_LEARN:
 	case RSPAMD_TASK_STAGE_LEARN_PRE:
 	case RSPAMD_TASK_STAGE_LEARN_POST:
-		if (task->flags & (RSPAMD_TASK_FLAG_LEARN_SPAM | RSPAMD_TASK_FLAG_LEARN_HAM)) {
+		if (task->flags & (RSPAMD_TASK_FLAG_LEARN_SPAM | RSPAMD_TASK_FLAG_LEARN_HAM | RSPAMD_TASK_FLAG_LEARN_AUTO )) {
 			if (task->err == NULL) {
 				if (!rspamd_stat_learn(task,
 									   task->flags & RSPAMD_TASK_FLAG_LEARN_SPAM,

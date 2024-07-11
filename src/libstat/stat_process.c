@@ -902,32 +902,42 @@ rspamd_stat_learn(struct rspamd_task *task,
 		}
 	}
 	else if (stage == RSPAMD_TASK_STAGE_LEARN) {
-		/* Process classifiers */
-		if (!rspamd_stat_classifiers_learn(st_ctx, task, classifier,
-										   spam, err)) {
-			if (err && *err == NULL) {
-				g_set_error(err, rspamd_stat_quark(), 500,
-							"Unknown statistics error, found when learning classifiers;"
-							" classifier: %s",
-							task->classifier);
-			}
-			return RSPAMD_STAT_PROCESS_ERROR;
+		if ((task->flags & RSPAMD_TASK_FLAG_LEARN_AUTO) &&
+			!RSPAMD_TASK_IS_EMPTY(task) &&
+			!(task->flags & (RSPAMD_TASK_FLAG_LEARN_SPAM | RSPAMD_TASK_FLAG_LEARN_HAM))) {
+			rspamd_stat_check_autolearn(task);
 		}
 
-		/* Process backends */
-		if (!rspamd_stat_backends_learn(st_ctx, task, classifier, spam, err)) {
-			if (err && *err == NULL) {
-				g_set_error(err, rspamd_stat_quark(), 500,
-							"Unknown statistics error, found when storing data on backend;"
-							" classifier: %s",
-							task->classifier);
+		if (task->flags & (RSPAMD_TASK_FLAG_LEARN_SPAM | RSPAMD_TASK_FLAG_LEARN_HAM)) {
+			/* Process classifiers */
+			if (!rspamd_stat_classifiers_learn(st_ctx, task, classifier,
+											   spam, err)) {
+				if (err && *err == NULL) {
+					g_set_error(err, rspamd_stat_quark(), 500,
+								"Unknown statistics error, found when learning classifiers;"
+								" classifier: %s",
+								task->classifier);
+				}
+				return RSPAMD_STAT_PROCESS_ERROR;
 			}
-			return RSPAMD_STAT_PROCESS_ERROR;
+
+			/* Process backends */
+			if (!rspamd_stat_backends_learn(st_ctx, task, classifier, spam, err)) {
+				if (err && *err == NULL) {
+					g_set_error(err, rspamd_stat_quark(), 500,
+								"Unknown statistics error, found when storing data on backend;"
+								" classifier: %s",
+								task->classifier);
+				}
+				return RSPAMD_STAT_PROCESS_ERROR;
+			}
 		}
 	}
 	else if (stage == RSPAMD_TASK_STAGE_LEARN_POST) {
-		if (!rspamd_stat_backends_post_learn(st_ctx, task, classifier, spam, err)) {
-			return RSPAMD_STAT_PROCESS_ERROR;
+		if (task->flags & (RSPAMD_TASK_FLAG_LEARN_SPAM | RSPAMD_TASK_FLAG_LEARN_HAM)) {
+			if (!rspamd_stat_backends_post_learn(st_ctx, task, classifier, spam, err)) {
+				return RSPAMD_STAT_PROCESS_ERROR;
+			}
 		}
 	}
 
@@ -1162,7 +1172,8 @@ rspamd_stat_check_autolearn(struct rspamd_task *task)
 
 			if (ret) {
 				/* Do not autolearn if we have this symbol already */
-				if (rspamd_stat_has_classifier_symbols(task, mres, cl)) {
+				if (rspamd_stat_has_classifier_symbols(task, mres, cl) ||
+					(task->flags & (RSPAMD_TASK_FLAG_ALREADY_LEARNED | RSPAMD_TASK_FLAG_UNLEARN))) {
 					ret = FALSE;
 					task->flags &= ~(RSPAMD_TASK_FLAG_LEARN_HAM |
 									 RSPAMD_TASK_FLAG_LEARN_SPAM);
